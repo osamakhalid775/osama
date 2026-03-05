@@ -2,9 +2,10 @@ import logging
 import random
 import sqlite3
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, InlineQueryHandler
 import os
+from uuid import uuid4
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,10 +62,15 @@ def add_judgment(chat_id, text, added_by):
     finally:
         conn.close()
 
-def get_judgments(chat_id):
+def get_judgments(chat_id=None):
+    """إذا تم تمرير chat_id، نجلب الأحكام الخاصة بهذه المجموعة + الافتراضية.
+       إذا لم يتم تمرير chat_id (لاين)، نجلب الأحكام الافتراضية فقط (chat_id=0)."""
     conn = sqlite3.connect('roulette.db')
     c = conn.cursor()
-    c.execute("SELECT text FROM judgments WHERE chat_id=? OR chat_id=0 ORDER BY RANDOM()", (chat_id,))
+    if chat_id:
+        c.execute("SELECT text FROM judgments WHERE chat_id=? OR chat_id=0 ORDER BY RANDOM()", (chat_id,))
+    else:
+        c.execute("SELECT text FROM judgments WHERE chat_id=0 ORDER BY RANDOM()")
     rows = c.fetchall()
     conn.close()
     return [row[0] for row in rows] if rows else ["لا توجد أحكام بعد، أضف واحدة باستخدام /addjudgment"]
@@ -121,7 +127,7 @@ def mention(user_id, name="مستخدم"):
     return f'<a href="tg://user?id={user_id}">{name}</a>'
 
 # ------------------------------------------------------------
-# دالة مساعدة: زر الرجوع إلى القائمة الرئيسية
+# دالة مساعدة: زر الرجوع
 # ------------------------------------------------------------
 def back_to_main_keyboard():
     keyboard = [[InlineKeyboardButton("🔝 القائمة الرئيسية", callback_data='back_to_main')]]
@@ -137,7 +143,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
 
-    # حالة الرجوع إلى القائمة الرئيسية
     if data == 'back_to_main':
         keyboard = [
             [InlineKeyboardButton("🎲 روليت عادي", callback_data='roll')],
@@ -269,7 +274,64 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ------------------------------------------------------------
-# الأوامر النصية الأساسية
+# معالج Inline Mode (الاستعلام المضمن)
+# ------------------------------------------------------------
+async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.inline_query.query
+    # chat_id غير متوفر هنا، نستخدم الأحكام الافتراضية (chat_id=0)
+    judgments = get_judgments()  # تجلب الأحكام الافتراضية فقط
+
+    if not query:
+        # إذا لم يكتب المستخدم شيئًا، نعرض الأوامر السريعة
+        results = [
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="🎲 روليت عادي",
+                description="اختيار فائز عشوائي",
+                input_message_content=InputTextMessageContent("/roll")
+            ),
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="⚖️ روليت أحكام",
+                description="اختيار فائز وحكم وحكم عشوائي",
+                input_message_content=InputTextMessageContent("/judge")
+            ),
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="📋 انضم للعبة",
+                description="تسجيل اسمك في قائمة اللاعبين",
+                input_message_content=InputTextMessageContent("/join")
+            ),
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="🏆 ترتيب اللاعبين",
+                description="عرض أفضل اللاعبين",
+                input_message_content=InputTextMessageContent("/leaderboard")
+            ),
+        ]
+    else:
+        # البحث في الأحكام (نص الحكم فقط)
+        filtered = [j for j in judgments if query.lower() in j.lower()]
+        results = [
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title=judgment[:50],
+                description="انقر لإرسال هذا الحكم",
+                input_message_content=InputTextMessageContent(judgment)
+            ) for judgment in filtered[:10]
+        ]
+        if not results:
+            results = [InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="لا توجد نتائج",
+                description="حاول بكلمة أخرى",
+                input_message_content=InputTextMessageContent("لم أجد حكماً مطابقاً.")
+            )]
+
+    await update.inline_query.answer(results, cache_time=1)
+
+# ------------------------------------------------------------
+# الأوامر النصية
 # ------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -317,7 +379,7 @@ async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     await update.message.reply_text(
-        f"👋 تمت إزالتك من قائمة اللاعبين.",
+        "👋 تمت إزالتك من قائمة اللاعبين.",
         reply_markup=back_to_main_keyboard()
     )
 
@@ -347,9 +409,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=back_to_main_keyboard()
     )
 
-# ------------------------------------------------------------
-# أوامر نصية إضافية (مرآة للأزرار)
-# ------------------------------------------------------------
+# الأوامر النصية الإضافية (مرآة الأزرار)
 async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -521,6 +581,9 @@ def main():
 
     # معالج الأزرار
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    # معالج Inline Mode
+    app.add_handler(InlineQueryHandler(inline_query_handler))
 
     print("✅ البوت الاحترافي يعمل الآن...")
     app.run_polling()
