@@ -4,21 +4,21 @@ import sqlite3
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-import os  # لإضافة المتغيرات البيئية
+import os
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
-# المتغيرات البيئية (سيتم تعبئتها من لوحة التحكم)
+# المتغيرات البيئية
 # ------------------------------------------------------------
-TOKEN = os.environ.get("TOKEN")  # سيتم جلب التوكن من المتغيرات البيئية
-CHANNEL_ID = os.environ.get("CHANNEL_ID")  # سيتم جلب معرف القناة من المتغيرات البيئية
+TOKEN = os.environ.get("TOKEN")
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
 if CHANNEL_ID:
-    CHANNEL_ID = int(CHANNEL_ID)  # تحويل النص إلى رقم
+    CHANNEL_ID = int(CHANNEL_ID)
 
 # ------------------------------------------------------------
-# قاعدة البيانات (SQLite)
+# قاعدة البيانات
 # ------------------------------------------------------------
 def init_db():
     conn = sqlite3.connect('roulette.db')
@@ -121,6 +121,13 @@ def mention(user_id, name="مستخدم"):
     return f'<a href="tg://user?id={user_id}">{name}</a>'
 
 # ------------------------------------------------------------
+# دالة مساعدة: زر الرجوع إلى القائمة الرئيسية
+# ------------------------------------------------------------
+def back_to_main_keyboard():
+    keyboard = [[InlineKeyboardButton("🔝 القائمة الرئيسية", callback_data='back_to_main')]]
+    return InlineKeyboardMarkup(keyboard)
+
+# ------------------------------------------------------------
 # معالج الأزرار
 # ------------------------------------------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,25 +137,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
 
+    # حالة الرجوع إلى القائمة الرئيسية
+    if data == 'back_to_main':
+        keyboard = [
+            [InlineKeyboardButton("🎲 روليت عادي", callback_data='roll')],
+            [InlineKeyboardButton("⚖️ روليت أحكام", callback_data='judge')],
+            [InlineKeyboardButton("📋 انضم للعبة", callback_data='join')],
+            [InlineKeyboardButton("🏆 ترتيب اللاعبين", callback_data='leaderboard')],
+            [InlineKeyboardButton("📊 إحصائيات", callback_data='stats')],
+            [InlineKeyboardButton("📜 عرض الأحكام", callback_data='list_judgments')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🎉 **بوت الروليت الاحترافي**\nاختر ما تريد:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
     if data == 'join':
         add_player(chat_id, user.id, user.username, user.first_name)
-        await query.edit_message_text(f"✅ {mention(user.id, user.first_name)} انضم إلى اللعبة!", parse_mode="HTML")
+        await query.edit_message_text(
+            f"✅ {mention(user.id, user.first_name)} انضم إلى اللعبة!",
+            reply_markup=back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
 
     elif data == 'roll':
         players = get_players(chat_id)
         if len(players) < 1:
-            await query.edit_message_text("⚠️ لا يوجد مشاركون بعد. استخدم /join أولاً.")
+            await query.edit_message_text(
+                "⚠️ لا يوجد مشاركون بعد. استخدم /join أولاً.",
+                reply_markup=back_to_main_keyboard()
+            )
             return
         winner = random.choice(players)
         await query.edit_message_text(
             f"🎲 **الفائز:** {mention(winner['user_id'], winner['first_name'])} 🎉",
+            reply_markup=back_to_main_keyboard(),
             parse_mode="HTML"
         )
 
     elif data == 'judge':
         players = get_players(chat_id)
         if len(players) < 2:
-            await query.edit_message_text("⚠️ نحتاج عضوين على الأقل لروليت الأحكام.")
+            await query.edit_message_text(
+                "⚠️ نحتاج عضوين على الأقل لروليت الأحكام.",
+                reply_markup=back_to_main_keyboard()
+            )
             return
         p_list = players.copy()
         winner = random.choice(p_list)
@@ -158,7 +194,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         judgment = random.choice(judgments)
         update_points_after_round(chat_id, winner['user_id'], judge['user_id'], judgment)
 
-        # إنشاء نص التقرير
         report = (
             f"⚖️ **جولة جديدة في المجموعة!**\n\n"
             f"🏆 **الفائز:** {mention(winner['user_id'], winner['first_name'])}\n"
@@ -166,7 +201,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📜 **الحكم:** {judgment}"
         )
 
-        # إرسال التقرير إلى القناة إذا تم تحديد معرف قناة
         if CHANNEL_ID:
             try:
                 await context.bot.send_message(
@@ -177,26 +211,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"فشل إرسال التقرير إلى القناة: {e}")
 
-        # الرد في المجموعة
         await query.edit_message_text(
             f"⚖️ **روليت الأحكام!**\n\n"
             f"🏆 **الفائز:** {mention(winner['user_id'], winner['first_name'])}\n"
             f"👨‍⚖️ **الحكم:** {mention(judge['user_id'], judge['first_name'])}\n"
             f"📜 **الحكم:** {judgment}",
+            reply_markup=back_to_main_keyboard(),
             parse_mode="HTML"
         )
 
     elif data == 'leaderboard':
         lb = get_leaderboard(chat_id)
         if not lb:
-            await query.edit_message_text("🏆 لا يوجد لاعبين بعد.")
+            await query.edit_message_text(
+                "🏆 لا يوجد لاعبين بعد.",
+                reply_markup=back_to_main_keyboard()
+            )
             return
         text = "🏆 **ترتيب اللاعبين:**\n"
         for i, row in enumerate(lb, 1):
             user_id, username, first_name, points, wins, judge_cnt = row
             name = first_name if first_name else (username if username else f"User{user_id}")
             text += f"{i}. {name} – {points} نقطة (فوز {wins}, تحكيم {judge_cnt})\n"
-        await query.edit_message_text(text, parse_mode="Markdown")
+        await query.edit_message_text(
+            text,
+            reply_markup=back_to_main_keyboard(),
+            parse_mode="Markdown"
+        )
 
     elif data == 'stats':
         stats = get_group_stats(chat_id)
@@ -204,23 +245,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 **إحصائيات المجموعة:**\n"
             f"عدد الجولات: {stats['total_rounds']}\n"
             f"أكثر حكم تكرر: {stats['top_judgment']}",
+            reply_markup=back_to_main_keyboard(),
             parse_mode="Markdown"
         )
 
     elif data == 'list_judgments':
         judgments = get_judgments(chat_id)
         if not judgments:
-            await query.edit_message_text("📋 لا توجد أحكام بعد. أضف واحدة باستخدام /addjudgment")
+            await query.edit_message_text(
+                "📋 لا توجد أحكام بعد. أضف واحدة باستخدام /addjudgment",
+                reply_markup=back_to_main_keyboard()
+            )
             return
         text = "📋 **قائمة الأحكام:**\n"
         for i, j in enumerate(judgments[:20], 1):
             text += f"{i}. {j}\n"
         if len(judgments) > 20:
             text += "...(المزيد)"
-        await query.edit_message_text(text, parse_mode="Markdown")
+        await query.edit_message_text(
+            text,
+            reply_markup=back_to_main_keyboard(),
+            parse_mode="Markdown"
+        )
 
 # ------------------------------------------------------------
-# الأوامر النصية
+# الأوامر النصية الأساسية
 # ------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -242,13 +291,22 @@ async def add_judgment_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
     if not context.args:
-        await update.message.reply_text("استخدم الأمر بالشكل: /addjudgment نص الحكم")
+        await update.message.reply_text(
+            "استخدم الأمر بالشكل: /addjudgment نص الحكم",
+            reply_markup=back_to_main_keyboard()
+        )
         return
     judgment_text = ' '.join(context.args)
     if add_judgment(chat_id, judgment_text, user.id):
-        await update.message.reply_text(f"✅ تم إضافة الحكم: \"{judgment_text}\"")
+        await update.message.reply_text(
+            f"✅ تم إضافة الحكم: \"{judgment_text}\"",
+            reply_markup=back_to_main_keyboard()
+        )
     else:
-        await update.message.reply_text("⚠️ هذا الحكم موجود مسبقاً.")
+        await update.message.reply_text(
+            "⚠️ هذا الحكم موجود مسبقاً.",
+            reply_markup=back_to_main_keyboard()
+        )
 
 async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -258,25 +316,163 @@ async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("DELETE FROM players WHERE chat_id=? AND user_id=?", (chat_id, user_id))
     conn.commit()
     conn.close()
-    await update.message.reply_text(f"👋 تمت إزالتك من قائمة اللاعبين.")
+    await update.message.reply_text(
+        f"👋 تمت إزالتك من قائمة اللاعبين.",
+        reply_markup=back_to_main_keyboard()
+    )
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if chat.type == "private":
-        await update.message.reply_text("هذا الأمر يعمل فقط في المجموعات.")
+        await update.message.reply_text(
+            "هذا الأمر يعمل فقط في المجموعات.",
+            reply_markup=back_to_main_keyboard()
+        )
         return
     member = await chat.get_member(user.id)
     if member.status not in ["administrator", "creator"]:
-        await update.message.reply_text("⚠️ أنت لست مشرفاً.")
+        await update.message.reply_text(
+            "⚠️ أنت لست مشرفاً.",
+            reply_markup=back_to_main_keyboard()
+        )
         return
     conn = sqlite3.connect('roulette.db')
     c = conn.cursor()
     c.execute("DELETE FROM players WHERE chat_id=?", (chat.id,))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ تم مسح قائمة اللاعبين.")
+    await update.message.reply_text(
+        "✅ تم مسح قائمة اللاعبين.",
+        reply_markup=back_to_main_keyboard()
+    )
 
+# ------------------------------------------------------------
+# أوامر نصية إضافية (مرآة للأزرار)
+# ------------------------------------------------------------
+async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    add_player(chat_id, user.id, user.username, user.first_name)
+    await update.message.reply_text(
+        f"✅ {mention(user.id, user.first_name)} انضم إلى اللعبة!",
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="HTML"
+    )
+
+async def roll_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    players = get_players(chat_id)
+    if len(players) < 1:
+        await update.message.reply_text(
+            "⚠️ لا يوجد مشاركون بعد. استخدم /join أولاً.",
+            reply_markup=back_to_main_keyboard()
+        )
+        return
+    winner = random.choice(players)
+    await update.message.reply_text(
+        f"🎲 **الفائز:** {mention(winner['user_id'], winner['first_name'])} 🎉",
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="HTML"
+    )
+
+async def judge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    players = get_players(chat_id)
+    if len(players) < 2:
+        await update.message.reply_text(
+            "⚠️ نحتاج عضوين على الأقل لروليت الأحكام.",
+            reply_markup=back_to_main_keyboard()
+        )
+        return
+    p_list = players.copy()
+    winner = random.choice(p_list)
+    p_list.remove(winner)
+    judge = random.choice(p_list)
+    judgments = get_judgments(chat_id)
+    judgment = random.choice(judgments)
+    update_points_after_round(chat_id, winner['user_id'], judge['user_id'], judgment)
+
+    report = (
+        f"⚖️ **جولة جديدة في المجموعة!**\n\n"
+        f"🏆 **الفائز:** {mention(winner['user_id'], winner['first_name'])}\n"
+        f"👨‍⚖️ **الحكم:** {mention(judge['user_id'], judge['first_name'])}\n"
+        f"📜 **الحكم:** {judgment}"
+    )
+
+    if CHANNEL_ID:
+        try:
+            await context.bot.send_message(
+                chat_id=CHANNEL_ID,
+                text=report,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"فشل إرسال التقرير إلى القناة: {e}")
+
+    await update.message.reply_text(
+        f"⚖️ **روليت الأحكام!**\n\n"
+        f"🏆 **الفائز:** {mention(winner['user_id'], winner['first_name'])}\n"
+        f"👨‍⚖️ **الحكم:** {mention(judge['user_id'], judge['first_name'])}\n"
+        f"📜 **الحكم:** {judgment}",
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="HTML"
+    )
+
+async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    lb = get_leaderboard(chat_id)
+    if not lb:
+        await update.message.reply_text(
+            "🏆 لا يوجد لاعبين بعد.",
+            reply_markup=back_to_main_keyboard()
+        )
+        return
+    text = "🏆 **ترتيب اللاعبين:**\n"
+    for i, row in enumerate(lb, 1):
+        user_id, username, first_name, points, wins, judge_cnt = row
+        name = first_name if first_name else (username if username else f"User{user_id}")
+        text += f"{i}. {name} – {points} نقطة (فوز {wins}, تحكيم {judge_cnt})\n"
+    await update.message.reply_text(
+        text,
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="Markdown"
+    )
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    stats = get_group_stats(chat_id)
+    await update.message.reply_text(
+        f"📊 **إحصائيات المجموعة:**\n"
+        f"عدد الجولات: {stats['total_rounds']}\n"
+        f"أكثر حكم تكرر: {stats['top_judgment']}",
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="Markdown"
+    )
+
+async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    judgments = get_judgments(chat_id)
+    if not judgments:
+        await update.message.reply_text(
+            "📋 لا توجد أحكام بعد. أضف واحدة باستخدام /addjudgment",
+            reply_markup=back_to_main_keyboard()
+        )
+        return
+    text = "📋 **قائمة الأحكام:**\n"
+    for i, j in enumerate(judgments[:20], 1):
+        text += f"{i}. {j}\n"
+    if len(judgments) > 20:
+        text += "...(المزيد)"
+    await update.message.reply_text(
+        text,
+        reply_markup=back_to_main_keyboard(),
+        parse_mode="Markdown"
+    )
+
+# ------------------------------------------------------------
+# إدراج الأحكام الافتراضية
+# ------------------------------------------------------------
 def insert_default_judgments():
     conn = sqlite3.connect('roulette.db')
     c = conn.cursor()
@@ -314,6 +510,14 @@ def main():
     app.add_handler(CommandHandler("addjudgment", add_judgment_cmd))
     app.add_handler(CommandHandler("leave", leave))
     app.add_handler(CommandHandler("reset", reset))
+
+    # الأوامر النصية الإضافية
+    app.add_handler(CommandHandler("join", join_command))
+    app.add_handler(CommandHandler("roll", roll_command))
+    app.add_handler(CommandHandler("judge", judge_command))
+    app.add_handler(CommandHandler("leaderboard", leaderboard_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("list", list_command))
 
     # معالج الأزرار
     app.add_handler(CallbackQueryHandler(button_handler))
