@@ -63,8 +63,6 @@ def add_judgment(chat_id, text, added_by):
         conn.close()
 
 def get_judgments(chat_id=None):
-    """إذا تم تمرير chat_id، نجلب الأحكام الخاصة بهذه المجموعة + الافتراضية.
-       إذا لم يتم تمرير chat_id (لاين)، نجلب الأحكام الافتراضية فقط (chat_id=0)."""
     conn = sqlite3.connect('roulette.db')
     c = conn.cursor()
     if chat_id:
@@ -274,45 +272,59 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ------------------------------------------------------------
-# معالج Inline Mode (الاستعلام المضمن)
+# معالج Inline Mode (محسّن)
 # ------------------------------------------------------------
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
-    # chat_id غير متوفر هنا، نستخدم الأحكام الافتراضية (chat_id=0)
-    judgments = get_judgments()  # تجلب الأحكام الافتراضية فقط
+    judgments = get_judgments()  # الأحكام الافتراضية فقط
+
+    # قائمة الأوامر الأساسية التي ستظهر دائمًا
+    command_results = [
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="🎲 روليت عادي",
+            description="اختيار فائز عشوائي",
+            input_message_content=InputTextMessageContent("/roll")
+        ),
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="⚖️ روليت أحكام",
+            description="اختيار فائز وحكم وحكم عشوائي",
+            input_message_content=InputTextMessageContent("/judge")
+        ),
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="📋 انضم للعبة",
+            description="تسجيل اسمك في قائمة اللاعبين",
+            input_message_content=InputTextMessageContent("/join")
+        ),
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="🏆 ترتيب اللاعبين",
+            description="عرض أفضل اللاعبين",
+            input_message_content=InputTextMessageContent("/leaderboard")
+        ),
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="📊 إحصائيات المجموعة",
+            description="عرض إحصائيات الجولات",
+            input_message_content=InputTextMessageContent("/stats")
+        ),
+        InlineQueryResultArticle(
+            id=str(uuid4()),
+            title="📜 قائمة الأحكام",
+            description="عرض جميع الأحكام المتاحة",
+            input_message_content=InputTextMessageContent("/list")
+        ),
+    ]
 
     if not query:
-        # إذا لم يكتب المستخدم شيئًا، نعرض الأوامر السريعة
-        results = [
-            InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="🎲 روليت عادي",
-                description="اختيار فائز عشوائي",
-                input_message_content=InputTextMessageContent("/roll")
-            ),
-            InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="⚖️ روليت أحكام",
-                description="اختيار فائز وحكم وحكم عشوائي",
-                input_message_content=InputTextMessageContent("/judge")
-            ),
-            InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="📋 انضم للعبة",
-                description="تسجيل اسمك في قائمة اللاعبين",
-                input_message_content=InputTextMessageContent("/join")
-            ),
-            InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="🏆 ترتيب اللاعبين",
-                description="عرض أفضل اللاعبين",
-                input_message_content=InputTextMessageContent("/leaderboard")
-            ),
-        ]
+        # إذا لم يكتب المستخدم شيئًا، نعرض الأوامر فقط
+        results = command_results
     else:
-        # البحث في الأحكام (نص الحكم فقط)
+        # البحث في الأحكام
         filtered = [j for j in judgments if query.lower() in j.lower()]
-        results = [
+        judgment_results = [
             InlineQueryResultArticle(
                 id=str(uuid4()),
                 title=judgment[:50],
@@ -320,13 +332,18 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 input_message_content=InputTextMessageContent(judgment)
             ) for judgment in filtered[:10]
         ]
-        if not results:
-            results = [InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="لا توجد نتائج",
-                description="حاول بكلمة أخرى",
-                input_message_content=InputTextMessageContent("لم أجد حكماً مطابقاً.")
-            )]
+        # دمج الأوامر مع نتائج البحث (الأوامر أولاً)
+        results = command_results + judgment_results
+        if not judgment_results:
+            # إذا لم توجد نتائج بحث، نضيف رسالة توضيحية
+            results.append(
+                InlineQueryResultArticle(
+                    id=str(uuid4()),
+                    title="❌ لا توجد نتائج",
+                    description="لم أجد حكماً مطابقاً، جرب كلمة أخرى",
+                    input_message_content=InputTextMessageContent("لم أجد حكماً يحتوي على: " + query)
+                )
+            )
 
     await update.inline_query.answer(results, cache_time=1)
 
@@ -409,7 +426,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=back_to_main_keyboard()
     )
 
-# الأوامر النصية الإضافية (مرآة الأزرار)
+# الأوامر النصية الإضافية
 async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
