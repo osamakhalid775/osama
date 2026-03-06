@@ -349,8 +349,8 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         # إضافة صورة مصغرة إذا كان لدينا رابط لهذا الإيموجي
         if cmd['emoji'] in thumb_urls:
             result.thumbnail_url = thumb_urls[cmd['emoji']]
-            result.thumbnail_width = 64
-            result.thumbnail_height = 64
+            result.thumbnail_width = 44
+            result.thumbnail_height = 44
         command_results.append(result)
 
     if not query:
@@ -370,8 +370,8 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             # إضافة صورة مصغرة للأحكام (فقاعة كلام)
             if "💬" in thumb_urls:
                 result.thumbnail_url = thumb_urls["💬"]
-                result.thumbnail_width = 64
-                result.thumbnail_height = 64
+                result.thumbnail_width = 44
+                result.thumbnail_height = 44
             judgment_results.append(result)
 
         # دمج الأوامر مع نتائج البحث (الأوامر أولاً)
@@ -389,8 +389,8 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             if "🔍" in thumb_urls:
                 not_found.thumbnail_url = thumb_urls["🔍"]
-                not_found.thumbnail_width = 64
-                not_found.thumbnail_height = 64
+                not_found.thumbnail_width = 44
+                not_found.thumbnail_height = 44
             results.append(not_found)
 
     await update.inline_query.answer(results, cache_time=1)
