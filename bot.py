@@ -272,51 +272,86 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ------------------------------------------------------------
-# معالج Inline Mode (محسّن)
+# معالج Inline Mode (محسّن مع صور مصغرة)
 # ------------------------------------------------------------
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
     judgments = get_judgments()  # الأحكام الافتراضية فقط
 
-    # قائمة الأوامر الأساسية التي ستظهر دائمًا
-    command_results = [
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="🎲 روليت عادي",
-            description="اختيار فائز عشوائي",
-            input_message_content=InputTextMessageContent("/roll")
-        ),
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="⚖️ روليت أحكام",
-            description="اختيار فائز وحكم وحكم عشوائي",
-            input_message_content=InputTextMessageContent("/judge")
-        ),
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="📋 انضم للعبة",
-            description="تسجيل اسمك في قائمة اللاعبين",
-            input_message_content=InputTextMessageContent("/join")
-        ),
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="🏆 ترتيب اللاعبين",
-            description="عرض أفضل اللاعبين",
-            input_message_content=InputTextMessageContent("/leaderboard")
-        ),
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="📊 إحصائيات المجموعة",
-            description="عرض إحصائيات الجولات",
-            input_message_content=InputTextMessageContent("/stats")
-        ),
-        InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="📜 قائمة الأحكام",
-            description="عرض جميع الأحكام المتاحة",
-            input_message_content=InputTextMessageContent("/list")
-        ),
+    # قاعدة بيانات للصور المصغرة (thumbnails) - روابط لأيقونات إيموجي عالية الجودة
+    thumb_urls = {
+        "🎲": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f3b2.png",  # لعبة النرد
+        "⚖️": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/2696.png",  # ميزان
+        "📋": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f4cb.png",  # لوحة
+        "🏆": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f3c6.png",  # كأس
+        "📊": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f4ca.png",  # رسم بياني
+        "📜": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f4dc.png",  # لفافة
+        "❓": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/2753.png",  # علامة استفهام
+        "💬": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f4ac.png",  # فقاعة كلام
+        "🔍": "https://cdn.jsdelivr.net/npm/emoji-datasource-twitter@7.0.1/img/twitter/64/1f50d.png",  # عدسة مكبرة
+    }
+
+    # قائمة الأوامر الرئيسية بتصميم جذاب
+    main_commands = [
+        {
+            "title": "🎲 روليت عادي",
+            "desc": "اختيار فائز عشوائي من المسجلين",
+            "cmd": "/roll",
+            "emoji": "🎲"
+        },
+        {
+            "title": "⚖️ روليت أحكام",
+            "desc": "اختيار فائز + حكم + حكم عشوائي",
+            "cmd": "/judge",
+            "emoji": "⚖️"
+        },
+        {
+            "title": "📋 انضم للعبة",
+            "desc": "تسجيل اسمك في قائمة اللاعبين",
+            "cmd": "/join",
+            "emoji": "📋"
+        },
+        {
+            "title": "🏆 ترتيب اللاعبين",
+            "desc": "عرض أفضل 10 لاعبين حسب النقاط",
+            "cmd": "/leaderboard",
+            "emoji": "🏆"
+        },
+        {
+            "title": "📊 إحصائيات المجموعة",
+            "desc": "عدد الجولات وأكثر حكم تكرر",
+            "cmd": "/stats",
+            "emoji": "📊"
+        },
+        {
+            "title": "📜 قائمة الأحكام",
+            "desc": "عرض جميع الأحكام المتاحة",
+            "cmd": "/list",
+            "emoji": "📜"
+        },
+        {
+            "title": "❓ مساعدة",
+            "desc": "عرض معلومات عن البوت وكيفية الاستخدام",
+            "cmd": "/start",
+            "emoji": "❓"
+        }
     ]
+
+    # تحويل الأوامر إلى نتائج Inline مع صور مصغرة
+    command_results = []
+    for cmd in main_commands:
+        result = InlineQueryResultArticle(
+            id=str(uuid4()),
+            title=cmd['title'],
+            description=cmd['desc'],
+            input_message_content=InputTextMessageContent(cmd['cmd']),
+        )
+        # إضافة صورة مصغرة إذا كان لدينا رابط لهذا الإيموجي
+        if cmd['emoji'] in thumb_urls:
+            result.thumbnail_url = thumb_urls[cmd['emoji']]
+            result.thumbnail_width = 64
+            result.thumbnail_height = 64
+        command_results.append(result)
 
     if not query:
         # إذا لم يكتب المستخدم شيئًا، نعرض الأوامر فقط
@@ -324,26 +359,39 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         # البحث في الأحكام
         filtered = [j for j in judgments if query.lower() in j.lower()]
-        judgment_results = [
-            InlineQueryResultArticle(
+        judgment_results = []
+        for j in filtered[:10]:
+            result = InlineQueryResultArticle(
                 id=str(uuid4()),
-                title=judgment[:50],
+                title=j[:50],
                 description="انقر لإرسال هذا الحكم",
-                input_message_content=InputTextMessageContent(judgment)
-            ) for judgment in filtered[:10]
-        ]
+                input_message_content=InputTextMessageContent(j),
+            )
+            # إضافة صورة مصغرة للأحكام (فقاعة كلام)
+            if "💬" in thumb_urls:
+                result.thumbnail_url = thumb_urls["💬"]
+                result.thumbnail_width = 64
+                result.thumbnail_height = 64
+            judgment_results.append(result)
+
         # دمج الأوامر مع نتائج البحث (الأوامر أولاً)
         results = command_results + judgment_results
+
         if not judgment_results:
             # إذا لم توجد نتائج بحث، نضيف رسالة توضيحية
-            results.append(
-                InlineQueryResultArticle(
-                    id=str(uuid4()),
-                    title="❌ لا توجد نتائج",
-                    description="لم أجد حكماً مطابقاً، جرب كلمة أخرى",
-                    input_message_content=InputTextMessageContent("لم أجد حكماً يحتوي على: " + query)
-                )
+            not_found = InlineQueryResultArticle(
+                id=str(uuid4()),
+                title=f"🔍 لا توجد نتائج لـ \"{query}\"",
+                description="يمكنك إضافة حكم جديد باستخدام /addjudgment",
+                input_message_content=InputTextMessageContent(
+                    f"لم أجد حكماً يحتوي على: {query}\n\nيمكنك إضافة حكم جديد عبر:\n/addjudgment {query}"
+                ),
             )
+            if "🔍" in thumb_urls:
+                not_found.thumbnail_url = thumb_urls["🔍"]
+                not_found.thumbnail_width = 64
+                not_found.thumbnail_height = 64
+            results.append(not_found)
 
     await update.inline_query.answer(results, cache_time=1)
 
