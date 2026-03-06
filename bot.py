@@ -3,7 +3,7 @@ import random
 import sqlite3
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, InlineQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, InlineQueryHandler, MessageHandler, filters
 import os
 from uuid import uuid4
 
@@ -348,7 +348,49 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.inline_query.answer(results, cache_time=1)
 
 # ------------------------------------------------------------
-# الأوامر النصية
+# معالج الرسائل النصية في القنوات (للمشرفين فقط)
+# ------------------------------------------------------------
+async def channel_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # التأكد من أن التحديث هو channel_post
+    if not update.channel_post:
+        return
+    
+    chat = update.effective_chat
+    user = update.effective_user  # قد يكون None إذا لم يكن البوت مشرفًا
+    
+    # إذا لم يكن هناك مستخدم (أي رسالة من القناة نفسها)، نتجاهل
+    if not user:
+        return
+    
+    # التحقق من أن المستخدم مشرف في القناة
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ["administrator", "creator"]:
+            return
+    except:
+        return  # لا يمكن التحقق، نتجاهل
+    
+    text = update.channel_post.text
+    if not text:
+        return
+    
+    # معالجة الأوامر النصية
+    if text.startswith('/join'):
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⚠️ لا يمكن استخدام أوامر اللعبة في القناة. يرجى استخدام المجموعة المخصصة للعب.",
+            reply_to_message_id=update.channel_post.message_id
+        )
+    elif text.startswith('/roll') or text.startswith('/judge'):
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⚠️ هذه الأوامر لا تعمل في القناة. استخدم المجموعة المخصصة.",
+            reply_to_message_id=update.channel_post.message_id
+        )
+    # يمكن إضافة معالجة لأوامر أخرى بنفس الطريقة
+
+# ------------------------------------------------------------
+# الأوامر النصية الأساسية
 # ------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -426,7 +468,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=back_to_main_keyboard()
     )
 
-# الأوامر النصية الإضافية
+# الأوامر النصية الإضافية (مرآة للأزرار)
 async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -601,6 +643,9 @@ def main():
 
     # معالج Inline Mode
     app.add_handler(InlineQueryHandler(inline_query_handler))
+
+    # معالج رسائل القناة (للمشرفين فقط)
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_message_handler))
 
     print("✅ البوت الاحترافي يعمل الآن...")
     app.run_polling()
